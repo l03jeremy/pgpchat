@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script src="openpgp.min.js"></script>
+</head>
+
+<body>
+    <input type="button" id="startws" value="Start">
+    <input type="button" id="stopws" value="Stop">
+    <input type="text" id="message" disabled> 
+    <input type="button" id="sendmsg" value="Send" disabled>
+    <input type="button" id="clearkeys" value="Clear Key cache" disabled>
+    <p id="cid"></p>
+    <pre id="msg"></pre>
+</body>
+<script>
+    function isJson(str) {
+        try {
+            JSON.parse(str);
+        } catch (e) {
+            return false;
+        }
+        return true;
+    }
+    document.getElementById('startws').disabled = false;
+    document.getElementById('stopws').disabled = true;
+    let socket;
+    document.getElementById('startws').addEventListener('click', () => {
+        socket = new WebSocket('ws://192.168.0.117:8088');
+
+        socket.onerror = (err) => {
+            document.getElementById('startws').disabled = false;
+            document.getElementById('stopws').disabled = true;
+            socket.destroy();
+            console.log(err);
+        }
+
+        socket.onclose = () => {
+            console.log("closed");
+        }
+
+        socket.onopen = () => {
+            console.log('Connected to server');
+            document.getElementById('startws').disabled = true;
+            document.getElementById('stopws').disabled = false;
+            //socket.send('--init');
+            (async () => {
+                let escapestring;
+                var jsonmsg;
+                if(!sessionStorage.getItem("privkey") || !sessionStorage.getItem("spubkey")) {
+                    console.log("Generating key pair...");
+                    const {privateKey, publicKey} = await openpgp.generateKey({
+                        userIDs: [{ name: 'client', email: 'clientkey@nottgh.xyz' }],
+                        type: 'ecc',
+                        format: 'armored',
+                        date: new Date(Date.now() - 3600000)
+                    });
+                    console.log("Done");
+                    sessionStorage.setItem("privkey", privateKey);
+                    sessionStorage.setItem("cpubkey", publicKey);
+                    document.getElementById("clearkeys").disabled = false;
+                    escapestring = publicKey.replace(/\\n/g, "\\n")
+                    .replace(/\\'/g, "\\'")
+                    .replace(/\\"/g, '\\"')
+                    .replace(/\\&/g, "\\&")
+                    .replace(/\\r/g, "\\r")
+                    .replace(/\\t/g, "\\t")
+                    .replace(/\\b/g, "\\b")
+                    .replace(/\\f/g, "\\f");
+                    jsonmsg = JSON.stringify({"pubkey" : escapestring, "type": "keyexchange"});
+                } else {
+                    if(document.getElementById("clearkeys").disabled == true) {
+                        document.getElementById("clearkeys").disabled = false;
+                    }
+                    jsonmsg = JSON.stringify({"pubkey" : sessionStorage.getItem("cpubkey"), "type" : "keyexchange"});
+                }
+                /*const pgpmsg = await openpgp.encrypt({
+                    message: await openpgp.createMessage({ text: jsonmsg }),
+                    encryptionKeys: await openpgp.readKey({ armoredKey: pubkey }),
+                });*/
+                socket.send(jsonmsg);
+            })();
+        };
+
+        socket.onmessage = (event) => {
+            (async () => {
+                var serverpubkey;
+
+                const privateKey = await openpgp.readPrivateKey({armoredKey: sessionStorage.getItem("privkey")});
+                const message = await openpgp.readMessage({
+                    armoredMessage: event.data 
+                });
+                const result = await openpgp.decrypt({
+                    message,
+                    decryptionKeys: privateKey
+                });
+                if(isJson(result.data)) {
+                    switch(JSON.parse(result.data).type) {
+                        case "keyexchange" : {
+                            var umessage = JSON.parse(result.data);
+                            serverpubkey = umessage.pubkey;
+                            console.log("Client ID is: " + umessage.clientid);
+                            document.getElementById('cid').innerHTML = "Client ID is " + umessage.clientid;
+                            document.getElementById('msg').innerHTML = "Acquired public key";
+                            sessionStorage.setItem("clientid", umessage.clientid);
+                            document.getElementById('message').disabled = false;
+                            document.getElementById('sendmsg').disabled = false;
+                            sessionStorage.setItem("spubkey", umessage.pubkey);
+                            break;
+                        }
+                        case "message" : {
+                            document.getElementById('msg').innerHTML = JSON.parse(result.data).content + "\n" + document.getElementById('msg').innerHTML;
+                            break;
+                        }
+                        default: {
+                            console.log("unknown type");
+                            break;
+                        }
+                    }
+                } else {
+                    console.log("Not a JSON");
+                }
+            })();
+        };
+    });
+    document.getElementById('clearkeys').addEventListener('click', function () {
+
+        sessionStorage.removeItem("privkey");
+        sessionStorage.removeItem("cpubkey");
+        sessionStorage.removeItem("spubkey");
+        this.disabled = true;
+    });
+    document.getElementById('stopws').addEventListener('click', function () {
+        document.getElementById('startws').disabled = false;
+        document.getElementById('message').disabled = true;
+        document.getElementById('sendmsg').disabled = true;
+        document.getElementById('msg').innerHTML = "You disconnected";
+        //document.getElementById('stopws').disabled = true;
+        this.disabled = true;
+        socket.close();
+    });
+
+    document.getElementById('sendmsg').addEventListener('click', function() {
+        if(!sessionStorage.getItem("spubkey") || document.getElementById('message').value == "") {
+            return;
+        } else {
+            
+            (async () => {
+                //console.log(sessionStorage.getItem("pubkey"));
+                sendjsonmsg = JSON.stringify({"type" : "message", "content" : document.getElementById('message').value });
+                const pgpmsg = await openpgp.encrypt({
+                    message: await openpgp.createMessage({ text: sendjsonmsg }), // input as Message object
+                    encryptionKeys: await openpgp.readKey({ armoredKey: sessionStorage.getItem("spubkey") }),
+                });
+                socket.send(pgpmsg);
+            })();
+            document.getElementById('message').value = "";
+        }
+    });
+    document.getElementById("message").addEventListener("keypress", function(event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            document.getElementById("sendmsg").click();
+        }
+    });
+</script>
+</html>
