@@ -1,5 +1,5 @@
 # PGP chat
-simple chat using websocket, secured end to end using PGP encryption. 
+simple chat using websocket, secured end to end using openPGP's PGP encryption. 
 
 # Usage
 requires ws and openpgp package in nodejs, install them and then run ws.js
