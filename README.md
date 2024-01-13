@@ -1,5 +1,5 @@
 # PGP chat
-simple chat using websocket, secured end to end using openPGP's PGP encryption. 
+simple chat using websocket, secured end to end using OpenPGP's PGP encryption. 
 
 # Usage
 requires ws and openpgp package in nodejs, install them and then run ws.js
@@ -14,3 +14,8 @@ requires ws and openpgp package in nodejs, install them and then run ws.js
 - this app generates pgp keys individually, locally and on the server. slower harddware may take much longer to generate
 - pgp keys are stored in the session. clearing cookies will clear the keys and requires generating a new one
 - public keys stored on the server for each client are deleted when said client disconnects.
+
+# How it works
+- when clicking start, your browser generates a key pair, then sends the public key to the server
+- the when the server receives the key pair, it will generate a key pair for itself responds with the server's public key, encrypted with the client's public key
+- each message sent will be encrypted with the server's public key, the server then re-encrypts the message using each client's public key and sends to each client with their respective pgp message
